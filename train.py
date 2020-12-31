@@ -9,67 +9,131 @@ Created on Sat Dec  5 17:34:27 2020
 import torch
 from transformers import BertModel, BertTokenizer
 import json
-from utils import get_f1, print_result, load_pretrained_model, load_tokenizer
-from net import Net
+from utils import get_f1, print_result, load_pretrained_model
+from utils import load_tokenizer
+from tokenizer import load_tokenizer_emoji
+from net import Net, Net_1, Net_2
 from data_generator import Data_generator
 from calculate_loss import Calculate_loss
 
 
-def train(epochs=20, batchSize=64, lr=0.0001, device='cuda:3', accumulate=True, a_step=16, load_saved=False, file_path='./saved_best.pt', use_dtp=False, pretrained_model='./bert_pretrain_model', tokenizer_model='bert-base-chinese', weighted_loss=False):
+def train(epochs=12, batchSize=64, lr=0.00005, bert_lr=0.00001,
+    device='cuda:0', accumulate=True, a_step=16, saved_path='./saved_best.pt',
+    load_saved=False, file_path='./saved_best.pt', use_dtp=False, 
+    net_head = 0,
+    pretrained_model='./bert_pretrain_model', tokenizer_model='bert-base-chinese', 
+    weighted_loss=False,use_all_data=False):
+
+    print('epoch:        ', epochs)
+    print('batchsize:    ', batchSize)
+    print('lr:           ', lr)
+    print('bert_lr:      ', bert_lr)
+    print('accumulate:   ', accumulate)
+    print('a_step:       ', a_step)
+    print('use_dtp:      ', use_dtp)
+    print('weighted loss:', weighted_loss)
+    print('device:       ', device)
+    if not load_saved:
+        print('pretrained:   ', pretrained_model)
+        print('net_head:     ', net_head)
+
     device = device
+    # tokenizer = load_tokenizer_emoji(tokenizer_model)
     tokenizer = load_tokenizer(tokenizer_model)
-    my_net = torch.load(file_path) if load_saved else Net(load_pretrained_model(pretrained_model))
+    if load_saved:
+        my_net = torch.load(file_path)
+    else:
+        bert = load_pretrained_model(pretrained_model)
+        bert.resize_token_embeddings(len(tokenizer))
+        if net_head==0:
+            my_net = Net(bert)
+        if net_head==1:
+            my_net = Net_1(bert)
+        if net_head==2:
+            my_net = Net_2(bert)
     my_net.to(device, non_blocking=True)
+
     label_dict = dict()
     with open('./tianchi_datasets/label.json') as f:
         for line in f:
             label_dict = json.loads(line)
             break
     label_weights_dict = dict()
-    with open('./tianchi_datasets/label_weights.json') as f:
+    with open('./tianchi_datasets/label_weights_norm.json') as f:
         for line in f:
             label_weights_dict = json.loads(line)
             break
-    ocnli_train = dict()
-    with open('./tianchi_datasets/OCNLI/train.json') as f:
-        for line in f:
-            ocnli_train = json.loads(line)
-            break
+    if use_all_data:
+        ocnli_train = dict()
+        with open('./tianchi_datasets/OCNLI/total.json') as f:
+            for line in f:
+                ocnli_train = json.loads(line)
+                break
+        ocemotion_train = dict()
+        with open('./tianchi_datasets/OCEMOTION/total.json') as f:
+            for line in f:
+                ocemotion_train = json.loads(line)
+                break
+        tnews_train = dict()
+        with open('./tianchi_datasets/TNEWS/total.json') as f:
+            for line in f:
+                tnews_train = json.loads(line)
+                break
+    else:
+        ocnli_train = dict()
+        with open('./tianchi_datasets/OCNLI/train.json') as f:
+            for line in f:
+                ocnli_train = json.loads(line)
+                break
+        ocemotion_train = dict()
+        with open('./tianchi_datasets/OCEMOTION/train.json') as f:
+            for line in f:
+                ocemotion_train = json.loads(line)
+                break
+        tnews_train = dict()
+        with open('./tianchi_datasets/TNEWS/train.json') as f:
+            for line in f:
+                tnews_train = json.loads(line)
+                break
+    print('ocnli_train set length: ',len(ocnli_train))
     ocnli_dev = dict()
     with open('./tianchi_datasets/OCNLI/dev.json') as f:
         for line in f:
             ocnli_dev = json.loads(line)
-            break
-    ocemotion_train = dict()
-    with open('./tianchi_datasets/OCEMOTION/train.json') as f:
-        for line in f:
-            ocemotion_train = json.loads(line)
             break
     ocemotion_dev = dict()
     with open('./tianchi_datasets/OCEMOTION/dev.json') as f:
         for line in f:
             ocemotion_dev = json.loads(line)
             break
-    tnews_train = dict()
-    with open('./tianchi_datasets/TNEWS/train.json') as f:
-        for line in f:
-            tnews_train = json.loads(line)
-            break
     tnews_dev = dict()
     with open('./tianchi_datasets/TNEWS/dev.json') as f:
         for line in f:
             tnews_dev = json.loads(line)
             break
+    
     train_data_generator = Data_generator(ocnli_train, ocemotion_train, tnews_train, label_dict, device, tokenizer)
     dev_data_generator = Data_generator(ocnli_dev, ocemotion_dev, tnews_dev, label_dict, device, tokenizer)
     tnews_weights = torch.tensor(label_weights_dict['TNEWS']).to(device, non_blocking=True)
     ocnli_weights = torch.tensor(label_weights_dict['OCNLI']).to(device, non_blocking=True)
     ocemotion_weights = torch.tensor(label_weights_dict['OCEMOTION']).to(device, non_blocking=True)
     loss_object = Calculate_loss(label_dict, weighted=weighted_loss, tnews_weights=tnews_weights, ocnli_weights=ocnli_weights, ocemotion_weights=ocemotion_weights)
-    optimizer=torch.optim.Adam(my_net.parameters(), lr=lr)
+    
+    bert_params = list(map(id, my_net.bert.parameters()))
+    other_params = filter(lambda p: id(p) not in bert_params, my_net.parameters())
+    params = [
+        {"params": other_params, "lr": lr},
+        {"params": my_net.bert.parameters(), "lr": bert_lr},
+    ]
+
+    # optimizer=torch.optim.Adam(my_net.parameters(), lr=lr)
+    optimizer=torch.optim.Adam(params,weight_decay=0.0003)
     best_dev_f1 = 0.0
     best_epoch = -1
+
+    print('---------------------start training-----------------------')    
     for epoch in range(epochs):
+        print(f'---------------------epoch{epoch+1}-----------------------')  
         my_net.train()
         train_loss = 0.0
         train_total = 0
@@ -111,7 +175,7 @@ def train(epochs=20, batchSize=64, lr=0.0001, device='cuda:3', accumulate=True, 
                 current_loss = loss_object.compute(tnews_pred, ocnli_pred, ocemotion_pred, tnews_gold, ocnli_gold, ocemotion_gold)
             train_loss += current_loss.item()
             current_loss.backward()
-            if accumulate and (cnt_train + 1) % a_step == 0:
+            if accumulate and (cnt_train + 1) % a_step == 0: # 积累a_step后才进行一次参数更新
                 optimizer.step()
                 optimizer.zero_grad()
             if not accumulate:
@@ -196,7 +260,8 @@ def train(epochs=20, batchSize=64, lr=0.0001, device='cuda:3', accumulate=True, 
                         dev_ocemotion_pred_list)
                     current_loss = loss_object.compute_dtp(tnews_pred, ocnli_pred, ocemotion_pred, tnews_gold,
                                                            ocnli_gold,
-                                                           ocemotion_gold, tnews_kpi, ocnli_kpi, ocemotion_kpi)
+                                                           ocemotion_gold, tnews_kpi, ocnli_kpi, ocemotion_kpi,
+                                                           y=0.5)
                 else:
                     current_loss = loss_object.compute(tnews_pred, ocnli_pred, ocemotion_pred, tnews_gold, ocnli_gold, ocemotion_gold)
                 dev_loss += current_loss.item()
@@ -242,11 +307,24 @@ def train(epochs=20, batchSize=64, lr=0.0001, device='cuda:3', accumulate=True, 
             if dev_avg_f1 > best_dev_f1:
                 best_dev_f1 = dev_avg_f1
                 best_epoch = epoch
-                torch.save(my_net, file_path)
-            print('best epoch is:', best_epoch, '; with best f1 is:', best_dev_f1)
+                torch.save(my_net, saved_path)
+            print('best epoch is:', best_epoch+1, '; with best f1 is:', best_dev_f1)
                 
 if __name__ == '__main__':
-    print('---------------------start training-----------------------')
-    pretrained_model = './robert_pretrain_model'
-    tokenizer_model = './robert_pretrain_model'
-    train(batchSize=16, device='cuda:3', lr=0.0001, use_dtp=True, pretrained_model=pretrained_model, tokenizer_model=tokenizer_model, weighted_loss=True)
+    pretrained_model = './roberta_large'
+    tokenizer_model = './roberta_large'
+    # pretrained_model = './roberta'
+    # tokenizer_model = './roberta'
+
+
+    train(epochs=6,batchSize=9, device='cuda:0', lr=0.00002, bert_lr=0.00001,
+            accumulate=True, a_step=16, use_dtp=True, saved_path='./saved_12311000.pt',
+            net_head=2,
+            pretrained_model=pretrained_model, tokenizer_model=tokenizer_model, 
+            weighted_loss=True)
+    # train(epochs=1, batchSize=9, lr=0.00001, bert_lr=0.00001, 
+    #     accumulate=True, a_step=True, use_dtp=True,
+    #     device='cuda:0', load_saved=True, 
+    #     file_path='./saved_12301758.pt',saved_path='./saved_12301758_finetune.pt',
+    #     tokenizer_model=tokenizer_model, weighted_loss=True,
+    #     use_all_data=True)

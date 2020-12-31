@@ -43,6 +43,7 @@ class Data_generator():
             self.tnews_data['s1'].append(v['s1'])
             self.tnews_data['label'].append(self.label2idx['TNEWS'][v['label']])
         self.reset()
+
     def reset(self):
         self.ocnli_ids = list(range(len(self.ocnli_data['s1'])))
         self.ocemotion_ids = list(range(len(self.ocemotion_data['s1'])))
@@ -50,6 +51,7 @@ class Data_generator():
         random.shuffle(self.ocnli_ids)
         random.shuffle(self.ocemotion_ids)
         random.shuffle(self.tnews_ids)
+
     def get_next_batch(self, batchSize=64):
         ocnli_len = len(self.ocnli_ids)
         ocemotion_len = len(self.ocemotion_ids)
@@ -59,8 +61,8 @@ class Data_generator():
             return None
         elif total_len > batchSize:
             if ocnli_len > 0:
-                ocnli_tmp_len = int((ocnli_len / total_len) * batchSize)
-                ocnli_cur = self.ocnli_ids[:ocnli_tmp_len]
+                ocnli_tmp_len = int((ocnli_len / total_len) * batchSize) # 按比例计算该任务当前batch的数据数量
+                ocnli_cur = self.ocnli_ids[:ocnli_tmp_len]      
                 self.ocnli_ids = self.ocnli_ids[ocnli_tmp_len:]
             if ocemotion_len > 0:
                 ocemotion_tmp_len = int((ocemotion_len / total_len) * batchSize)

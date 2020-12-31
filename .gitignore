@@ -130,3 +130,16 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+train_lossmodify.py
+dataset_info.txt
+saved_model/*.pt
+log/*.log
+submission/*/
+tianchi_datasets/*/*
+roberta_large/
+roberta/
+.vscode/settings.json
+tianchi_datasets/label.json
+tianchi_datasets/label_weights.json
+tianchi_datasets/label_weights_norm.json
